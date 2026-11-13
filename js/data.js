@@ -861,7 +861,7 @@
     // Open-body height limit (cm) when a vehicle has no own "max load height": road height limit − deck height.
     // 380 cm is the usual CMVR overall-height limit; check your route (bridges, wires) before loading higher.
     fleet: { payloadUnit: 'lb', roadH: 380, deckH: 120 },
-    units: 'in',
+    units: 'cm', unitsV: 2,
   };
 
   const data = { categories, compat, skus, vehicles, slabs, dc, regionRules, customers, orders, templates, settings };

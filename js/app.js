@@ -34,7 +34,7 @@
         const d = defaults();
         const out = Object.assign(d, s);
         const ss = s.settings || {};
-        out.settings = { opt: Object.assign(d.settings.opt, ss.opt), plan: Object.assign(d.settings.plan, ss.plan), trigger: Object.assign(d.settings.trigger, ss.trigger), fleet: Object.assign(d.settings.fleet, ss.fleet), units: ss.units || d.settings.units };
+        out.settings = { opt: Object.assign(d.settings.opt, ss.opt), plan: Object.assign(d.settings.plan, ss.plan), trigger: Object.assign(d.settings.trigger, ss.trigger), fleet: Object.assign(d.settings.fleet, ss.fleet), units: ss.unitsV === 2 && ss.units ? ss.units : d.settings.units, unitsV: 2 };
         out.ui = Object.assign(d.ui, s.ui);
         out.sim = Object.assign(d.sim, s.sim);
         return out;
@@ -54,8 +54,9 @@
   const catName = (id) => (catMap()[id] || { name: id }).name;
   const catBadge = (id) => { const c = catMap()[id] || { name: id, color: '#888' }; return `<span class="badge"><span class="dot" style="background:${esc(c.color)}"></span>${esc(c.name)}</span>`; };
   const vName = (id) => (vehMap()[id] || { name: id || '—' }).name;
-  // Display units: lengths are stored in cm, shown in inches (default, as in the packing list) or cm.
-  const UNIT = () => (S.settings.units === 'cm' ? 'cm' : 'in');
+  // Display units: lengths are stored in cm and shown in cm (default) or inches (header toggle).
+  // Saves from before cm became the default (no unitsV) are switched to cm once.
+  const UNIT = () => (S.settings.units === 'in' ? 'in' : 'cm');
   const PER = () => (UNIT() === 'in' ? 2.54 : 1);
   const toU = (cm) => cm / PER();
   const fromU = (v) => v * PER();
