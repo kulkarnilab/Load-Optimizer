@@ -1,0 +1,8 @@
+# build output – binaries are published as GitHub release assets
+dist/
+launcher/web/
+# local tool settings
+.claude/
+# source documents (client packing lists / equipment sheets)
+*.pdf
+*.xlsx

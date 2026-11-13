@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RoaDo Optimizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="9" width="17" height="13" rx="2"/><path d="M19 13h5.5l4.5 5v4h-10z"/><circle cx="8" cy="24" r="3"/><circle cx="24" cy="24" r="3"/></svg>
+      <div>
+        <div class="brand-name">RoaDo Optimizer</div>
+        <div class="brand-sub">Truck load optimisation &amp; order planning</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="btn ghost sm" data-act="units" title="Switch length units (inches / cm)">Units: in</button>
+      <button class="btn ghost sm" data-act="theme" title="Toggle light / dark">◐ Theme</button>
+      <button class="btn ghost sm" data-act="reset-all" title="Restore default masters, rules and sample data">Reset data</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="optimizer" class="active"><span class="ti">▣</span> Load Optimizer</button>
+      <button role="tab" data-tab="planning"><span class="ti">⇶</span> Order Planning</button>
+      <button role="tab" data-tab="sequence"><span class="ti">↹</span> Load Sequence</button>
+      <button role="tab" data-tab="compat"><span class="ti">◫</span> Categories &amp; Compatibility</button>
+      <button role="tab" data-tab="masters"><span class="ti">☰</span> Masters &amp; Rules</button>
+      <button role="tab" data-tab="audit"><span class="ti">✎</span> Audit Trail</button>
+    </nav>
+
+    <section class="tab-panel active" id="tab-optimizer">
+      <div id="lo-summary"></div>
+      <div class="lo-main">
+        <div id="lo-left" class="stack"></div>
+        <div class="card viz-card">
+          <div class="viz-toolbar" id="viz-toolbar"></div>
+          <div id="viz"></div>
+          <div class="viz-steps" id="viz-steps"></div>
+        </div>
+      </div>
+      <div id="lo-items"></div>
+    </section>
+
+    <section class="tab-panel" id="tab-planning"></section>
+    <section class="tab-panel" id="tab-sequence"></section>
+    <section class="tab-panel" id="tab-compat"></section>
+    <section class="tab-panel" id="tab-masters"></section>
+    <section class="tab-panel" id="tab-audit"></section>
+  </main>
+
+  <dialog id="dlg"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="tip" class="tip"></div>
+
+  <script src="vendor/three.min.js"></script>
+  <script src="vendor/OrbitControls.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/packer.js"></script>
+  <script src="js/planner.js"></script>
+  <script src="js/viz.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
