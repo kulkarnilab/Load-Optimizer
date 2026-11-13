@@ -31,8 +31,10 @@
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const s = JSON.parse(raw);
+        // Merge saved state over a fresh copy of the defaults. `d` must stay untouched so that settings added
+        // in newer versions (and the cm unit switch) get their default values.
         const d = defaults();
-        const out = Object.assign(d, s);
+        const out = Object.assign(defaults(), s);
         const ss = s.settings || {};
         out.settings = { opt: Object.assign(d.settings.opt, ss.opt), plan: Object.assign(d.settings.plan, ss.plan), trigger: Object.assign(d.settings.trigger, ss.trigger), fleet: Object.assign(d.settings.fleet, ss.fleet), units: ss.unitsV === 2 && ss.units ? ss.units : d.settings.units, unitsV: 2 };
         out.ui = Object.assign(d.ui, s.ui);
