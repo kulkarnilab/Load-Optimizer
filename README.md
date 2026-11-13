@@ -78,7 +78,7 @@ SKU master with stacking norms, product categories with a co-loading matrix (ok 
 sku,name,length,width,height,weight,quantity,drop,destination,category,maxStack,maxTopLoadKg,maxStackHeight,stackOnTop,stackUnder,rotationAllowed
 PKG-13,New wooden case,40,30,25,220,1,1,Bidar,Ash Handling,2,220,0,true,true,true
 ```
-Lengths are in the unit selected in the header (inches by default), and weight is in kg. If a SKU already exists in the master, blank columns are filled in from it.
+Lengths are in the unit selected in the header (inches by default), and weight is in kg. If a SKU already exists in the master, the row's non-blank values update it and blank columns are filled in from it. When the row changes the size or weight, it's treated as a different package, and blank stacking columns get the defaults instead of the old norms. Blank or unknown categories are created. Rows for different destinations that share a drop number are planned on separate trucks when splitting, and the single-vehicle view warns about them.
 
 ## Build the executables
 

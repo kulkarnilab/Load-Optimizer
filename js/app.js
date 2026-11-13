@@ -218,19 +218,21 @@
   function fleetStrip() {
     const fp = fleetPlan, st = fp.stats;
     const n = st.trucks;
-    const why = n <= 1 ? 'The whole load fits one vehicle, so no split is needed.'
+    const why = fp.byDest ? `${n} truck${n === 1 ? '' : 's'} in total; each is the smallest vehicle that still holds its share.`
+      : n <= 1 ? 'The whole load fits one vehicle, so no split is needed.'
       : n > st.lowerBound ? `No single vehicle takes the whole load. Weight, volume and floor-only deck space alone would allow ${st.lowerBound}; piece shapes and stacking norms need ${n}. Each truck is the smallest vehicle that still holds its share.`
       : `No single vehicle takes the whole load. ${n} trucks is the minimum possible for this weight, volume and deck space, and each truck is the smallest vehicle that still holds its share.`;
     const leftN = st.oversizeUnits + st.leftoverUnits;
+    const destNote = fp.byDest ? `Destinations ${st.dests.map((d) => d || '(none)').join(', ')} share a drop number, so each is planned on its own trucks. ` : '';
     return `<div class="card mb">
       ${planStale ? `<div class="callout warn" style="margin:10px 14px 0">Items or settings changed. <button class="btn xs" data-act="optimize">Re-plan trucks</button></div>` : ''}
       <div class="card-h"><div><div class="card-t">Multi-truck plan <span class="badge acc">${n} truck${n === 1 ? '' : 's'}</span> ${leftN ? `<span class="badge bad">${leftN} units not loaded</span>` : '<span class="badge ok">All units loaded</span>'}</div>
-        <div class="card-d">${esc(why)}</div></div>
+        <div class="card-d">${esc(destNote + why)}</div></div>
         <div class="row"><button class="btn sm" data-act="split-vehicles">Choose vehicles…</button><button class="btn sm" data-act="single-vehicle">Back to single vehicle</button></div></div>
       <div class="card-b">
         <div class="trucks" role="tablist" aria-label="Trucks">${fp.trucks.map((t, i) => { const ts = t.res.stats; return `<button class="truck ${i === S.ui.truck ? 'on' : ''}" role="tab" aria-selected="${i === S.ui.truck}" data-act="pick-truck" data-v="${i}">
           <div class="row between"><b>Truck ${i + 1}</b>${ts.aboveWall ? `<span class="badge acc" title="${ts.aboveWall} pieces above the side walls">↑ ${ts.aboveWall}</span>` : ''}</div>
-          <div class="tv">${esc(t.vehicle.name)}</div>
+          <div class="tv">${esc(t.vehicle.name)}</div>${t.dest ? `<div class="xs">→ ${esc(t.dest)}</div>` : ''}
           <div class="xs muted">${fmt(ts.packed)} units · ${fmt(ts.usedWt)} kg${ts.drops.length > 1 ? ` · drops ${ts.drops.join(', ')}` : ''}</div>
           <div class="tb"><span>Vol</span>${pctBar(ts.volPct)}<span class="num">${fmt(ts.volPct, 0)}%</span></div>
           <div class="tb"><span>Wt</span>${pctBar(ts.wtPct, 'w')}<span class="num">${fmt(ts.wtPct, 0)}%</span></div></button>`; }).join('')}</div>
@@ -275,9 +277,17 @@
           <div class="s">CoG ${fmt(cogPct, 0)}% from nose ${cogOk ? '<span class="badge ok">balanced</span>' : '<span class="badge warn">check axle</span>'}</div></div>
       </div>
       ${st.aboveWall ? `<div class="callout mt" style="margin:0 14px 12px"><b>${st.aboveWall} piece${st.aboveWall === 1 ? '' : 's'} above the side walls</b> (walls ${lenU(st.wallH)}, load reaches ${lenU(st.maxTop)} of the ${lenU(st.heightLimit)} limit). Lash and tarp them, and check bridges and overhead wires on the route.</div>` : ''}
+      ${!fleetPlan && sharedDrop().length ? `<div class="callout warn" style="margin:0 14px 12px">${sharedDrop().map((x) => `Drop ${x.drop} has ${x.dests.length} destinations (${x.dests.map(esc).join(', ')})`).join('; ')} – they are loaded as one stop. Give each destination its own drop number for a multi-drop route, or use <button class="btn xs" data-act="split-run">Split across trucks</button> to send each destination on its own trucks.</div>` : ''}
       ${st.unpacked && !fleetPlan ? `<div class="callout warn" style="margin:0 14px 12px">${st.unpacked} unit${st.unpacked === 1 ? '' : 's'} do not fit in ${esc(lv.name)}. <button class="btn xs" data-act="suggest">Find a bigger vehicle</button> <button class="btn xs primary" data-act="split-run">Split across trucks</button></div>` : ''}
       ${st.unpacked ? `<details class="unpacked"><summary>Unpacked items: ${st.unpacked} units – why</summary><ul class="flags" style="margin-top:6px">${Object.keys(reasons).map((r) => `<li><b>${esc(r)}</b>: ${Object.keys(reasons[r]).map((n) => `${esc(n)} ×${reasons[r][n]}`).join(', ')}</li>`).join('')}</ul></details>` : ''}
     </div>`;
+  }
+
+  /** Drop numbers shared by more than one destination (usually a CSV with every row on drop 1). */
+  function sharedDrop() {
+    const by = {};
+    S.items.forEach((it) => { if (it.dest) (by[it.drop] = by[it.drop] || new Set()).add(it.dest.trim()); });
+    return Object.keys(by).filter((d) => by[d].size > 1).map((d) => ({ drop: +d, dests: [...by[d]] }));
   }
 
   function vehicleAllowed(v) {
@@ -355,7 +365,7 @@
     let leg = '';
     if (loadPlan) {
       if (S.ui.colorMode === 'drop') leg = loadPlan.stats.drops.map((d) => { const b = loadPlan.placed.find((x) => x.u.drop === d); return `<span><i class="dot" style="background:${DROP_COLORS[(d - 1) % DROP_COLORS.length]}"></i>Drop ${d}${b && b.u.dest ? ' · ' + esc(b.u.dest) : ''}</span>`; }).join('');
-      else if (S.ui.colorMode === 'category') leg = cats.map((c) => `<span><i class="dot" style="background:${esc(catMap()[c].color)}"></i>${esc(catName(c))}</span>`).join('');
+      else if (S.ui.colorMode === 'category') leg = cats.map((c) => `<span><i class="dot" style="background:${esc((catMap()[c] || {}).color || '#888')}"></i>${esc(catName(c))}</span>`).join('');
       else leg = [...new Set(loadPlan.placed.map((b) => b.u.skuId))].map((id) => { const s = skuMap()[id]; return `<span title="${esc(s.name)}"><i class="dot" style="background:${esc(s.color)}"></i>${esc(s.id)} · ${esc(s.name.length > 28 ? s.name.slice(0, 27) + '…' : s.name)}</span>`; }).join('');
     }
     let legEl = $('#viz-legend');
@@ -515,7 +525,7 @@
   }
   const ITEM_COLS = ['sku', 'name', 'length', 'width', 'height', 'weight', 'quantity', 'drop', 'destination', 'category', 'maxStack', 'maxTopLoadKg', 'maxStackHeight', 'stackOnTop', 'stackUnder', 'rotationAllowed'];
   function uploadDialog() {
-    openDialog('Bulk Upload Items', `<p class="small muted" style="margin-top:0">Upload a CSV file with item details. If <b>sku</b> matches the SKU master, its dimensions and stacking norms are used; otherwise a new SKU is created from the row.</p>
+    openDialog('Bulk Upload Items', `<p class="small muted" style="margin-top:0">Upload a CSV file with item details. If <b>sku</b> matches the SKU master, the row's non-blank values (size, weight, category, norms) update that SKU. Blank cells keep the master's values, except stacking norms when the size or weight changed (a different package gets default norms); otherwise a new SKU is created from the row.</p>
       <div class="field"><input type="file" id="csv-file" accept=".csv,text/csv"></div>
       <div class="field"><label class="check"><input type="checkbox" id="csv-replace" checked><span>Replace current items</span></label></div>
       <div class="hint">Lengths in ${UNIT()} (header toggle), weights in kg. Columns: ${ITEM_COLS.map((c) => `<code>${c}</code>`).join(', ')}. Category accepts: ${S.categories.map((c) => esc(c.name)).join(', ')}.</div>
@@ -532,13 +542,47 @@
       const head = rows[0].map((h) => h.trim().toLowerCase());
       const col = (r, ...names) => { for (const n of names) { const i = head.indexOf(n.toLowerCase()); if (i >= 0 && r[i] != null && r[i].trim() !== '') return r[i].trim(); } return ''; };
       const bool = (v, d) => (v === '' ? d : /^(true|1|yes|y)$/i.test(v));
-      const findCat = (v) => { if (!v) return 'general'; const l = v.toLowerCase(); const c = S.categories.find((x) => x.id === l || x.name.toLowerCase() === l || x.name.toLowerCase().startsWith(l)); return c ? c.id : 'general'; };
-      const items = [], created = [], errors = [];
+      // Unknown or blank categories are created, so every SKU points at a real category.
+      const PALETTE = ['#64748b', '#0ea5e9', '#a855f7', '#f97316', '#14b8a6', '#e11d48'];
+      const ensureCat = (id, name) => { if (!S.categories.some((x) => x.id === id)) { S.categories.push({ id, name, color: PALETTE[S.categories.length % PALETTE.length] }); newCats.push(name); } return id; };
+      const findCat = (v) => {
+        if (!v) return ensureCat('general', 'General / unclassified');
+        const l = v.toLowerCase();
+        const c = S.categories.find((x) => x.id === l || x.name.toLowerCase() === l || x.name.toLowerCase().startsWith(l));
+        return c ? c.id : ensureCat(l.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'general', v);
+      };
+      const items = [], created = [], updated = [], errors = [], newCats = [];
       rows.slice(1).forEach((r, i) => {
         let skuId = col(r, 'sku', 'id', 'item id');
         const name = col(r, 'name');
         const qty = Math.floor(+col(r, 'quantity', 'qty') || 1);
         let s = skuMap()[skuId];
+        if (s) {
+          // The file is the truth for this shipment: non-blank cells override the master SKU.
+          const num = (n) => { const v = col(r, n); return v === '' ? null : +v; };
+          const ch = {};
+          const L = num('length'), Wd = num('width'), Hh = num('height'), wt = num('weight');
+          if (L > 0) ch.l = r1(fromU(L));
+          if (Wd > 0) ch.w = r1(fromU(Wd));
+          if (Hh > 0) ch.h = r1(fromU(Hh));
+          if (wt > 0) ch.wt = wt;
+          if (name) ch.name = name;
+          if (col(r, 'category')) ch.cat = findCat(col(r, 'category'));
+          if (num('maxStack') > 0) ch.maxStack = num('maxStack');
+          if (num('maxTopLoadKg') != null) ch.maxTopKg = num('maxTopLoadKg');
+          if (num('maxStackHeight') != null) ch.maxHeight = r1(fromU(num('maxStackHeight')));
+          if (col(r, 'stackOnTop')) ch.onTop = bool(col(r, 'stackOnTop'), true);
+          if (col(r, 'stackUnder')) ch.under = bool(col(r, 'stackUnder'), true);
+          if (col(r, 'rotationAllowed')) ch.rotate = bool(col(r, 'rotationAllowed'), true);
+          // A different size or weight means a different package: the old SKU's stacking norms don't apply,
+          // so they come from the row, else the defaults for a new SKU.
+          if (['l', 'w', 'h', 'wt'].some((k) => k in ch && Math.abs(ch[k] - s[k]) > 0.05)) {
+            const d = { maxStack: 6, maxTopKg: 0, maxHeight: 0, onTop: true, under: true, rotate: true, tip: false };
+            Object.keys(d).forEach((k) => { if (!(k in ch)) ch[k] = d[k]; });
+          }
+          const diff = Object.keys(ch).filter((k) => String(ch[k]) !== String(s[k]));
+          if (diff.length) { diff.forEach((k) => (s[k] = ch[k])); delete s.assumed; updated.push(s.id); }
+        }
         if (!s) {
           const l = r1(fromU(+col(r, 'length'))), w = r1(fromU(+col(r, 'width'))), h = r1(fromU(+col(r, 'height'))), wt = +col(r, 'weight');
           if (!(l > 0 && w > 0 && h > 0 && wt > 0)) { errors.push(`Row ${i + 2}: unknown SKU and missing dimensions/weight`); return; }
@@ -551,9 +595,10 @@
       });
       if (replace) S.items = items; else S.items.push(...items);
       markStale(); save();
-      audit('Bulk upload', f.name, `${items.length} lines${created.length ? `, ${created.length} new SKUs` : ''}${errors.length ? `, ${errors.length} errors` : ''}`);
+      const extra = `${created.length ? ` · ${created.length} new SKUs` : ''}${updated.length ? ` · ${updated.length} master SKUs updated from file (${updated.join(', ')})` : ''}${newCats.length ? ` · new categories: ${newCats.join(', ')}` : ''}`;
+      audit('Bulk upload', f.name, `${items.length} lines${extra}${errors.length ? `, ${errors.length} errors` : ''}`);
       if (errors.length) { $('#csv-msg').innerHTML = `<div class="callout warn">${items.length} lines imported. ${errors.slice(0, 5).map(esc).join('<br>')}</div>`; renderOptimizer(); return; }
-      closeDialog(); toast(`${items.length} lines imported${created.length ? ` · ${created.length} new SKUs added to master` : ''}`);
+      closeDialog(); toast(`${items.length} lines imported${extra}`);
       loadContext = 'CSV: ' + f.name;
       optimize(true);
     }).catch(() => { $('#csv-msg').textContent = 'Failed to process CSV file'; });

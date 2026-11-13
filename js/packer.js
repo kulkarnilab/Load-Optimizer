@@ -56,7 +56,6 @@
   /** Can one unit physically go into this vehicle at all (size, door, payload, height mode)? */
   function unitFits(vehicle, u, opts) {
     const hc = heightCaps(vehicle, opts);
-    if (u.wt > vehicle.payload + EPS) return { ok: false, why: 'Heavier than payload' };
     const ceil = hc.ceilFor(u);
     let ors = orientations(u).filter((o) => o[0] <= vehicle.l + EPS && o[1] <= vehicle.w + EPS && o[2] <= ceil + EPS);
     if (!ors.length) return { ok: false, why: 'Larger than vehicle body' };
@@ -64,6 +63,7 @@
       ors = ors.filter((o) => o[1] <= vehicle.doorW + EPS && o[2] <= vehicle.doorH + EPS);
       if (!ors.length) return { ok: false, why: 'Cannot pass the door' };
     }
+    if (u.wt > vehicle.payload + EPS) return { ok: false, why: 'Heavier than payload' };
     return { ok: true };
   }
 
@@ -507,6 +507,34 @@
   function splitPlan(vehicles, items, skuMap, opts) {
     const t0 = Date.now();
     opts = Object.assign({}, opts || {});
+    // Lines for different destinations that share a drop number are separate shipments: plan each destination
+    // on its own trucks. (Distinct drop numbers mean a deliberate multi-drop route, so those stay together.)
+    if (!opts._group) {
+      const byDrop = {};
+      items.forEach((it) => { if (it.dest) (byDrop[it.drop] = byDrop[it.drop] || new Set()).add(String(it.dest).trim()); });
+      if (Object.values(byDrop).some((set) => set.size > 1)) {
+        const groups = new Map();
+        items.forEach((it) => { const k = String(it.dest || '').trim(); (groups.get(k) || groups.set(k, []).get(k)).push(it); });
+        const budget = opts.budgetMs || 20000;
+        const parts = [...groups.entries()].map(([dest, its]) => {
+          const p = splitPlan(vehicles, its, skuMap, Object.assign({}, opts, { _group: true, budgetMs: Math.max(4000, budget / groups.size) }));
+          p.trucks.forEach((t) => (t.dest = dest));
+          return p;
+        });
+        const sum = (f) => parts.reduce((a, p) => a + f(p), 0);
+        const trucks = parts.flatMap((p) => p.trucks);
+        return {
+          trucks, oversize: parts.flatMap((p) => p.oversize), leftover: parts.flatMap((p) => p.leftover), byDest: true,
+          stats: {
+            trucks: trucks.length, lowerBound: sum((p) => p.stats.lowerBound), units: sum((p) => p.stats.units), packed: sum((p) => p.stats.packed),
+            wt: sum((p) => p.stats.wt), oversizeUnits: sum((p) => p.stats.oversizeUnits), leftoverUnits: sum((p) => p.stats.leftoverUnits),
+            cost: sum((p) => p.stats.cost), costBasis: parts[0] ? parts[0].stats.costBasis : 'capacity', filler: null, tried: sum((p) => p.stats.tried), ms: Date.now() - t0,
+            avgUtil: trucks.length ? trucks.reduce((a, t) => a + Math.max(t.res.stats.volPct, t.res.stats.wtPct), 0) / trucks.length : 0,
+            dests: [...groups.keys()],
+          },
+        };
+      }
+    }
     const deadline = t0 + (opts.budgetMs || 20000);
     vehicles = vehicles.filter((v) => v.active !== false && v.l > 0 && v.w > 0 && v.h > 0 && v.payload > 0);
 
@@ -709,6 +737,7 @@
       if (done || (best && Date.now() > deadline)) break;
       if (consider(greedy(f), f.name + ' (greedy)')) break;
     }
+    best.trucks.forEach((t) => { const ds = [...new Set(t.items.map((it) => it.dest).filter(Boolean))]; if (ds.length && !t.dest) t.dest = ds.join(', '); });
     // Heaviest / largest trucks first, so truck 1 is the main load.
     best.trucks.sort((a, b) => effVol(b.vehicle, opts) - effVol(a.vehicle, opts) || b.res.stats.usedWt - a.res.stats.usedWt);
     return finish(best.trucks, best.leftover, best.filler, tried);
