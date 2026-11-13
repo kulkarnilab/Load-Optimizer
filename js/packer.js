@@ -507,7 +507,7 @@
   function splitPlan(vehicles, items, skuMap, opts) {
     const t0 = Date.now();
     opts = Object.assign({}, opts || {});
-    const deadline = t0 + (opts.budgetMs || 30000);
+    const deadline = t0 + (opts.budgetMs || 20000);
     vehicles = vehicles.filter((v) => v.active !== false && v.l > 0 && v.w > 0 && v.h > 0 && v.payload > 0);
 
     // 1) pieces no vehicle can carry at all (needs an ODC / special vehicle)
@@ -556,18 +556,19 @@
       seen.add(k);
       return true;
     });
-    const fillOpts = Object.assign({}, opts, { timeLimitMs: 4000 });
+    const fillOpts = Object.assign({}, opts, { timeLimitMs: 2500 });
+    const absorbOpts = Object.assign({}, opts, { timeLimitMs: 1200 });
 
-    function greedy(first) {
-      const order = [first].concat(fillers.filter((v) => v !== first));
-      let rem = load.map((it) => Object.assign({}, it));
-      const trucks = [];
+    // Merge lines that share an id (the same item line split over several trucks).
+    const combine = (list) => { const m = new Map(); list.forEach((it) => { const c = m.get(it.id); if (c) c.qty += it.qty; else m.set(it.id, Object.assign({}, it)); }); return [...m.values()]; };
+
+    /** Load `rem` onto more trucks: the smallest vehicle that takes all of it, else fill one (preferring `order[0]`)
+     *  as full as the packer can and repeat. Then merge and downsize. */
+    function complete(trucks, rem, order) {
       let guard = 0;
       while (rem.length && guard++ < 60) {
-        if (trucks.length) {
-          const last = smallestFitting(vehicles, rem, skuMap, opts, deadline);
-          if (last) { trucks.push(last); rem = []; break; }
-        }
+        const last = smallestFitting(vehicles, rem, skuMap, opts, deadline);
+        if (last) { trucks.push(last); rem = []; break; }
         let step = null;
         for (const v of order) {
           const res = pack(v, rem, skuMap, fillOpts);
@@ -580,7 +581,7 @@
         if (Date.now() > deadline) break;
       }
       absorb(trucks, order);
-      // Downsize full trucks whose contents fit a smaller vehicle.
+      // Downsize trucks whose contents fit a smaller vehicle.
       trucks.forEach((t, i) => {
         if (Date.now() > deadline) return;
         const smaller = vehicles.filter((v) => effVol(v, opts) < effVol(t.vehicle, opts) - EPS || (effVol(v, opts) <= effVol(t.vehicle, opts) + EPS && v.payload < t.vehicle.payload));
@@ -592,6 +593,58 @@
       return { trucks, leftover };
     }
 
+    /** Greedy: fill one truck at a time, densest goods first (per the weight/volume priority). */
+    function greedy(first) {
+      const order = [first].concat(fillers.filter((v) => v !== first));
+      const rem = load.map((it) => Object.assign({}, it));
+      // The whole load does not fit one vehicle (checked above), so start by filling.
+      const res = pack(first, rem, skuMap, fillOpts);
+      const trucks = res.placed.length ? [{ vehicle: first, res, items: only(rem, placedByLine(res)) }] : [];
+      return complete(trucks, res.placed.length ? minus(rem, placedByLine(res)) : rem, order);
+    }
+
+    /** Balanced: share every item line evenly over k trucks of type V, so each truck gets the same mix of
+     *  floor-only, heavy and stackable goods; leftovers go into spare room or extra trucks. */
+    function balanced(V, k) {
+      const order = [V].concat(fillers.filter((v) => v !== V));
+      const parts = Array.from({ length: k }, () => []);
+      let rot = 0;
+      load.slice().sort((a, b) => b.qty - a.qty).forEach((it) => {
+        const base = Math.floor(it.qty / k), extra = it.qty % k;
+        for (let i = 0; i < k; i++) {
+          const q = base + ((i - rot + k) % k < extra ? 1 : 0);
+          if (q > 0) parts[i].push(Object.assign({}, it, { qty: q }));
+        }
+        rot = (rot + extra) % k;
+      });
+      const trucks = [];
+      let rem = [];
+      for (const p of parts) {
+        if (!p.length) continue;
+        if (Date.now() > deadline) { rem = rem.concat(p); continue; }
+        const res = pack(V, p, skuMap, absorbOpts);
+        const m = placedByLine(res);
+        if (res.placed.length) trucks.push({ vehicle: V, res, items: only(p, m) });
+        rem = rem.concat(minus(p, m));
+      }
+      rem = combine(rem);
+      // Leftovers: first into the spare room of the balanced trucks, then onto extra trucks.
+      for (let j = 0; j < trucks.length && rem.length && Date.now() < deadline; j++) {
+        const t = trucks[j];
+        const combo = combine(t.items.concat(rem));
+        const res = pack(V, combo, skuMap, fillOpts);
+        const m = placedByLine(res);
+        const ownOk = t.items.every((it) => (m[it.id] || 0) >= it.qty);
+        const gained = res.placed.length - t.res.placed.length;
+        if (!ownOk || gained <= 0) continue;
+        const extra = {};
+        combo.forEach((it) => { const own = (t.items.find((x) => x.id === it.id) || { qty: 0 }).qty; const e = (m[it.id] || 0) - own; if (e > 0) extra[it.id] = e; });
+        trucks[j] = { vehicle: V, res, items: only(combo, m) };
+        rem = minus(rem, extra);
+      }
+      return complete(trucks, rem, order);
+    }
+
     /** Try to empty the least-used truck into the spare room of the others (moving a truck up to a bigger
      *  vehicle when that helps). A truck is removed only when every one of its units found a new place. */
     function absorb(trucks, fl) {
@@ -599,7 +652,7 @@
       let changed = true;
       while (changed && trucks.length > 1 && Date.now() < deadline) {
         changed = false;
-        const byFill = trucks.map((t, i) => i).sort((a, b) => fill(trucks[a]) - fill(trucks[b]));
+        const byFill = trucks.map((t, i) => i).sort((a, b) => fill(trucks[a]) - fill(trucks[b])).slice(0, 2);
         for (const i of byFill) {
           if (Date.now() > deadline) return;
           let rem = trucks[i].items.map((it) => Object.assign({}, it));
@@ -612,7 +665,7 @@
             for (const v of [next[j].vehicle].concat(bigger)) {
               const combo = own.map((it) => Object.assign({}, it));
               rem.forEach((r) => { const c = combo.find((x) => x.id === r.id); if (c) c.qty += r.qty; else combo.push(Object.assign({}, r)); });
-              const res = pack(v, combo, skuMap, fillOpts);
+              const res = pack(v, combo, skuMap, absorbOpts);
               const m = placedByLine(res);
               if (!own.every((it) => (m[it.id] || 0) >= own.filter((x) => x.id === it.id).reduce((a, x) => a + x.qty, 0))) continue;
               const extra = {};
@@ -631,13 +684,30 @@
     let best = null, tried = 0;
     const score = (p) => [p.leftover.reduce((a, o) => a + o.qty, 0), p.trucks.length, costOf(p.trucks)];
     const better = (a, b) => { const x = score(a), y = score(b); for (let i = 0; i < 3; i++) { if (x[i] < y[i] - 1e-9) return true; if (x[i] > y[i] + 1e-9) return false; } return false; };
-    for (const f of fillers.slice(0, 3)) {
-      if (best && Date.now() > deadline) break;
-      const p = greedy(f);
-      p.filler = f.name;
+    const consider = (p, label) => {
+      p.filler = label;
       tried++;
       if (!best || better(p, best)) best = p;
-      if (!best.leftover.length && best.trucks.length <= lowerBound) break; // cannot do better than the bound
+      return !best.leftover.length && best.trucks.length <= lowerBound; // cannot do better than the bound
+    };
+    // Balanced split on the two best filler types, at the fewest trucks each could manage and one more.
+    const need = (v) => {
+      const deck = v.l * v.w;
+      return Math.max(1, Math.ceil(T.wt / v.payload - 1e-9), Math.ceil(T.vol / effVol(v, opts) - 1e-9), Math.ceil(floorNeed / deck - 1e-9));
+    };
+    let done = false;
+    for (const f of fillers.slice(0, 2)) {
+      if (done || (best && Date.now() > deadline)) break;
+      const k0 = need(f);
+      for (const k of [k0, k0 + 1]) {
+        if (best && (Date.now() > deadline || k >= best.trucks.length)) break;
+        if (consider(balanced(f, k), f.name + ' ×' + k + ' (balanced)')) { done = true; break; }
+      }
+    }
+    // Greedy fill on the three best filler types.
+    for (const f of fillers.slice(0, 3)) {
+      if (done || (best && Date.now() > deadline)) break;
+      if (consider(greedy(f), f.name + ' (greedy)')) break;
     }
     // Heaviest / largest trucks first, so truck 1 is the main load.
     best.trucks.sort((a, b) => effVol(b.vehicle, opts) - effVol(a.vehicle, opts) || b.res.stats.usedWt - a.res.stats.usedWt);

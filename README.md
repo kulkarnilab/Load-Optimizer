@@ -52,10 +52,12 @@ Open-top trucks, flat racks and ODC trailers are top or crane loaded, so their s
 When no single vehicle takes the whole load, **Split across trucks** (or Suggest Vehicle, when nothing fits) builds a multi-truck plan:
 
 1. Pieces that fit no vehicle at all are listed separately as needing an ODC / special vehicle.
-2. **Greedy fill**: while the remainder is too big for one vehicle, a "filler" truck is packed as full as the 3D packer can get it. The last part goes into the smallest vehicle that takes it.
+2. Two ways of dividing the load are tried:
+   - **Balanced split**: every item line is shared evenly over *k* trucks of the best vehicle type, so each truck gets the same mix of floor-only, heavy and stackable goods. *k* is the fewest trucks that weight, volume and floor-only deck area allow, and *k* + 1 is also tried. Leftovers go into spare room, then onto extra trucks.
+   - **Greedy fill**: while the remainder is too big for one vehicle, a truck is packed as full as the 3D packer can get it. The last part goes into the smallest vehicle that takes it.
 3. **Merge pass**: the least-used truck is emptied into the spare room of the others (moving a truck up to a bigger vehicle if that helps). A truck is dropped only when all of its units found a new place.
 4. **Downsize pass**: each truck is replaced by the smallest vehicle that still holds its contents.
-5. The three best filler vehicle types are tried, and the plan with the fewest trucks wins. Ties go to the lowest market ₹/km when rates are set, otherwise to the smallest total capacity.
+5. Both strategies run on the best vehicle types within a 20-second budget, and the plan with the fewest trucks wins. Ties go to the lowest market ₹/km when rates are set, otherwise to the smallest total capacity.
 
 The plan shows each truck's 3D layout, utilisation and drops. It also shows a lower bound (from weight, volume and floor-only deck area), so you can see how close the plan is to the theoretical minimum. The item table shows which truck carries what, and the loading-sheet CSV covers all trucks. The split respects the *Deliver to customer* vehicle restriction and the vehicles you tick in Suggest Vehicle.
 
