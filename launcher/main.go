@@ -4,8 +4,11 @@
 package main
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"net"
@@ -31,25 +34,69 @@ const idleTimeout = 150 * time.Second
 
 const heartbeat = `<script>(function(){function p(){fetch('/__ping',{cache:'no-store'}).catch(function(){})}p();setInterval(p,20000);document.addEventListener('visibilitychange',p);})();</script>`
 
+// buildID identifies the embedded app, so a newer launcher can tell an outdated copy that is still running.
+func buildID() string {
+	h := sha256.New()
+	fs.WalkDir(webFS, "web", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if f, e := webFS.Open(p); e == nil {
+				io.WriteString(h, p)
+				io.Copy(h, f)
+				f.Close()
+			}
+		}
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
 func main() {
 	addr := "127.0.0.1:" + port
 	url := "http://" + addr + "/"
+	id := buildID()
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		// Already running? Just open another window on it.
 		c := http.Client{Timeout: 2 * time.Second}
 		if resp, e := c.Get(url + "__ping"); e == nil {
 			resp.Body.Close()
-			openBrowser(url)
-			return
+			running := ""
+			if r, e := c.Get(url + "__version"); e == nil {
+				if r.StatusCode == http.StatusOK {
+					b, _ := io.ReadAll(r.Body)
+					running = strings.TrimSpace(string(b))
+				}
+				r.Body.Close()
+			}
+			if running == id {
+				// Same version already running: just open another window on it.
+				openBrowser(url)
+				return
+			}
+			// An older version is running: ask it to exit, then take over the port (and keep the saved data).
+			if req, e := http.NewRequest(http.MethodPost, url+"__quit", nil); e == nil {
+				req.Header.Set("X-Roado-Quit", "1")
+				if r, e := c.Do(req); e == nil {
+					r.Body.Close()
+				}
+			}
+			for i := 0; i < 25 && err != nil; i++ {
+				time.Sleep(200 * time.Millisecond)
+				ln, err = net.Listen("tcp", addr)
+			}
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "An older RoaDo Optimizer is still running on port "+port+". Close its window and wait about 3 minutes (or end it in Task Manager / Activity Monitor), then start this one again.")
+			}
 		}
-		// Port taken by something else: fall back to a random port (saved data won't carry over).
-		if ln, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
-			fmt.Fprintln(os.Stderr, "cannot start local server:", err)
-			os.Exit(1)
+		if err != nil {
+			// Port taken by something else (or an old copy that cannot be stopped): use a random port.
+			// Saved data won't carry over, because the browser origin changes.
+			if ln, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
+				fmt.Fprintln(os.Stderr, "cannot start local server:", err)
+				os.Exit(1)
+			}
+			url = "http://" + ln.Addr().String() + "/"
 		}
-		url = "http://" + ln.Addr().String() + "/"
 	}
 
 	web, _ := fs.Sub(webFS, "web")
@@ -60,6 +107,20 @@ func main() {
 	mux.HandleFunc("/__ping", func(w http.ResponseWriter, r *http.Request) {
 		last.Store(time.Now().Unix())
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/__version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		io.WriteString(w, id)
+	})
+	// A newer launcher asks this one to exit. The custom header means a web page cannot trigger it
+	// (browsers would need a CORS preflight, which this server never answers).
+	mux.HandleFunc("/__quit", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.Header.Get("X-Roado-Quit") != "1" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		go func() { time.Sleep(150 * time.Millisecond); os.Exit(0) }()
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		last.Store(time.Now().Unix())

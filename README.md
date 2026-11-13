@@ -16,7 +16,7 @@ Get the latest build from **[Releases](../../releases)**:
 | macOS Apple Silicon | `roado-optimizer-macos-arm64` |
 | Linux x64 | `roado-optimizer-linux` |
 
-The executable starts a local server on `127.0.0.1:47815` and opens the app in a chromeless window (Edge or Chrome if installed, otherwise your default browser). It stops on its own a few minutes after you close the window. Your data lives in the browser's local storage, and the port is fixed, so it persists between runs.
+The executable starts a local server on `127.0.0.1:47815` and opens the app in a chromeless window (Edge or Chrome if installed, otherwise your default browser). It stops on its own a few minutes after you close the window. Running a newer version while an older one is still open replaces the old one automatically (your data is kept). Your data lives in the browser's local storage, and the port is fixed, so it persists between runs.
 
 The binaries are unsigned:
 - **Windows**: SmartScreen asks you to confirm. Choose *More info → Run anyway*.
